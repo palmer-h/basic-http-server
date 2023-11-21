@@ -10,15 +10,207 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <ctype.h>
 
 #define PORT "3000"
 #define BACKLOG 10
 
+typedef enum HttpMethod {GET, POST, PUT, DELETE} HttpMethod;
+
+typedef struct HttpRequestHeader {
+    char *name;
+    char *value;
+    struct HttpRequestHeader *next;
+} HttpRequestHeader;
+
+typedef struct HttpRequest {
+    enum HttpMethod method;
+    char *path;
+    char *version;
+    struct HttpRequestHeader *headers;
+    char *body;
+} HttpRequest;
+
+struct HttpRequest *parse_request(const char *raw) {
+    struct HttpRequest *request = NULL;
+    struct HttpRequestHeaders *headers = NULL;
+    size_t len = strcspn(raw, " "); // Store length of each part (method, path, etc.)
+
+    // Allocate memory for request struct
+    request = malloc(sizeof(struct HttpRequest));
+
+    if (!request) {
+        return NULL;
+    }
+
+    memset(request, 0, sizeof(struct HttpRequest));
+
+    // If valid method, copy method to struct (already includes null terminator)
+    if (memcmp(raw, "GET", 3) == 0) {
+        request->method = GET;
+    } else if (memcmp(raw, "POST", 4) == 0) {
+        request->method = POST;
+    } else if (memcmp(raw, "PUT", 3) == 0) {
+        request->method = PUT;
+    } else if (memcmp(raw, "DELETE", 6) == 0) {
+        request->method = DELETE;
+    } else {
+        return NULL;
+    }
+
+    // Move pointer to start of path
+    raw += len + 1;
+
+    // Path length
+    len = strcspn(raw, " ");
+
+    // Allocate correct amount of memory based on path length (+ 1 for null terminating char)
+    request->path = malloc(len + 1);
+
+    if (!request->path) {
+        return NULL;
+    }
+
+    // Copy path to struct member
+    memcpy(request->path, raw, len);
+
+    // Add null terminating char to end of path
+    request->path[len] = '\0';
+
+    // Move pointer to start of HTTP version
+    raw += len + 1;
+
+    // Length of HTTP version
+    len = strcspn(raw, "\r\n");
+
+    // Allocate memory for HTTP version based on length of HTTP version (+ 1 for null terminating char)
+    request->version = malloc(len + 1);
+
+    if (!request->version) {
+        return NULL;
+    }
+
+    // Copy version to struct member
+    memcpy(request->version, raw, len);
+
+    // Add null terminating char to end of version
+    request->version[len] = '\0';
+
+    // Move pointer to start of first line of headers (past <LF>)
+    raw += len + 1;
+
+    struct HttpRequestHeader *header = NULL, *last = NULL;
+
+    // While next line does not start with \n (blank line indicates end of headers and start of body)
+    while (raw[0] != '\n') {
+        last = header;
+
+        header = malloc(sizeof(HttpRequestHeader));
+
+        // Length of header name
+        len = strcspn(raw, ":");
+
+        // Allocate memory based on length of header name
+        header->name = malloc(len + 1);
+
+        if (!header->name) {
+            return NULL;
+        }
+
+        memcpy(header->name, raw, len);
+
+        // Add null terminating char to end of header name
+        header->name[len] = '\0';
+
+        // Move pointer passed colon
+        raw += len + 1;
+
+        // If there is a space after the colon, before the header value (e.g: Header-Name: header-value)
+        while (*raw == ' ') {
+            raw++;
+        }
+
+        // Length of header value
+        len = strcspn(raw, "\n");
+
+        // Allocate memory based on length of header value (+ 1 for null terminator)
+        header->value = malloc(len + 1);
+
+        if (!header->value) {
+            return NULL;
+        }
+
+        memcpy(header->value, raw, len);
+
+        // Add null terminating char to end of header value
+        header->value[len] = '\0';
+
+        // Move to next header
+        raw += len + 1;
+
+        // Set pointer to prev header
+        header->next = last;
+    }
+
+    // Set headers
+    request->headers = header;
+
+    // Move to start of body
+    raw += 1;
+
+    // Length of body
+    len = strlen(raw);
+
+    // Allocate memory based on length of body (+ 1 for null terminator)
+    request->body = malloc(len + 1);
+
+    if (!request->body) {
+        return NULL;
+    }
+
+    memcpy(request->body, raw, len);
+
+    // Add null terminating char to end of body
+    request->body[len] = '\0';
+
+    return request;
+}
+
 int handle_conn(int sockfd)
 {
-    if (send(sockfd, "Hello, world!", 13, 0) == -1) {
+    ssize_t bytes_recv, total_recv = 0;
+    char buffer[2048];
+    char *method[8], *path[2048];
+
+    while((bytes_recv = recv(sockfd, buffer + total_recv, sizeof buffer - total_recv, 0)) > 0) {
+        if (bytes_recv == -1) {
+            return -1;
+        }
+
+        // Try again
+        if (bytes_recv < 0 && errno == EAGAIN) {
+            continue;
+        }
+
+        // Client closed connection
+        if (bytes_recv == 0) {
+            return 0;
+        }
+        
+        // Add bytes of latest chunk to total received bytes
+        total_recv += bytes_recv;
+    }
+
+    struct HttpRequest *request = parse_request(buffer);
+
+    if (request == NULL) {
         return -1;
     }
+
+    printf("Method: %d \n", request->method);
+    printf("Path: %s \n", request->path);
+    printf("Version: %s \n", request->version);
+    printf("Body: %s \n", request->body);
 
     return 0;
 }
@@ -98,12 +290,12 @@ int main()
             close(sockfd); // Child does not need this
 
             if (handle_conn(new_fd) == -1) {
-                printf("Error handling request from %s\n", s);
+                if (send(new_fd, "Error handling connection", 6, 0) == -1) {
+                    printf("Error sending to %s\n", s);
+                }
             }
 
-            printf("Hello!");
-
-            close(new_fd);
+            close(new_fd);            
             _exit(0);
         }
     }
