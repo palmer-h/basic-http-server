@@ -321,7 +321,7 @@ int main() {
             close(sockfd); // Child does not need this
 
             if (handle_conn(new_fd) == -1) {
-                if (send(new_fd, "Error handling connection", 6, 0) == -1) {
+                if (send(new_fd, "Error handling connection", 25, 0) == -1) {
                     printf("Error sending to %s\n", s);
                 }
             }
