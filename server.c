@@ -96,11 +96,17 @@ struct HttpRequest *parse_request(const char *raw) {
     // Add null terminating char to end of version
     request->version[len] = '\0';
 
+    /**
+     * TODO: What if line ends with \r\n
+    */
     // Move pointer to start of first line of headers (past <LF>)
     raw += len + 1;
 
     struct HttpRequestHeader *header = NULL, *last = NULL;
 
+    /**
+     * TODO: What if line ends with \r\n
+    */
     // While next line does not start with \n (blank line indicates end of headers and start of body)
     while (raw[0] != '\n') {
         last = header;
@@ -130,6 +136,9 @@ struct HttpRequest *parse_request(const char *raw) {
             raw++;
         }
 
+        /**
+         * TODO: What if line ends with \r\n
+        */
         // Length of header value
         len = strcspn(raw, "\n");
 
@@ -145,6 +154,9 @@ struct HttpRequest *parse_request(const char *raw) {
         // Add null terminating char to end of header value
         header->value[len] = '\0';
 
+        /**
+         * TODO: What if line ends with \r\n
+        */
         // Move to next header
         raw += len + 1;
 
@@ -155,6 +167,22 @@ struct HttpRequest *parse_request(const char *raw) {
     // Set headers
     request->headers = header;
 
+    /**
+     * TODO: Combine path and hostname header to form full URL?
+    */
+
+    /**
+     * TODO: Check content-size header
+    */
+
+    // If GET request then body is redundant so return request as is
+    if (request->method == GET) {
+        return request;
+    }
+
+    /**
+     * TODO: What if line ends with \r\n
+    */
     // Move to start of body
     raw += 1;
 
@@ -176,8 +204,7 @@ struct HttpRequest *parse_request(const char *raw) {
     return request;
 }
 
-int handle_conn(int sockfd)
-{
+int handle_conn(int sockfd) {
     ssize_t bytes_recv, total_recv = 0;
     char buffer[2048];
     char *method[8], *path[2048];
@@ -212,11 +239,15 @@ int handle_conn(int sockfd)
     printf("Version: %s \n", request->version);
     printf("Body: %s \n", request->body);
 
+    /**
+     * TODO: Free the memory allocated for the request struct
+    */
+    // ...
+
     return 0;
 }
 
-int main()
-{
+int main() {
     int sockfd, new_fd;
     struct sockaddr_storage conn_addr;
     struct addrinfo hints, *servinfo;
