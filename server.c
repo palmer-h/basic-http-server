@@ -81,7 +81,12 @@ struct HttpRequest *parse_request(const char *raw) {
     raw += len + 1;
 
     // Length of HTTP version
-    len = strcspn(raw, "\r\n");
+    len = strcspn(raw, "\n");
+
+    // If second to last char is \r, is CLRF so reduce length by 1
+    if (raw[len -1] == '\r') {
+        --len;
+    }
 
     // Allocate memory for HTTP version based on length of HTTP version (+ 1 for null terminating char)
     request->version = malloc(len + 1);
@@ -96,19 +101,18 @@ struct HttpRequest *parse_request(const char *raw) {
     // Add null terminating char to end of version
     request->version[len] = '\0';
 
-    /**
-     * TODO: What if line ends with \r\n
-    */
-    // Move pointer to start of first line of headers (past <LF>)
-    raw += len + 1;
+    // Move pointer to start of first line of headers (passed <CR> or <LF>)
+    ++raw;
+
+    // If pointing at \n then is CRLF and we only moved passed the \r
+    if (raw[0] == '\n') {
+        ++raw;
+    }
 
     struct HttpRequestHeader *header = NULL, *last = NULL;
 
-    /**
-     * TODO: What if line ends with \r\n
-    */
-    // While next line does not start with \n (blank line indicates end of headers and start of body)
-    while (raw[0] != '\n') {
+    // While next line does not start with \r or \n (blank line indicates end of headers and start of body)
+    while (raw[0] != '\n' && raw[0] != '\r') {
         last = header;
 
         header = malloc(sizeof(HttpRequestHeader));
@@ -131,14 +135,11 @@ struct HttpRequest *parse_request(const char *raw) {
         // Move pointer passed colon
         raw += len + 1;
 
-        // If there is a space after the colon, before the header value (e.g: Header-Name: header-value)
+        // Ignore any spaces between ":" and value (e.g: Header-Name:   header-value)
         while (*raw == ' ') {
-            raw++;
+            ++raw;
         }
 
-        /**
-         * TODO: What if line ends with \r\n
-        */
         // Length of header value
         len = strcspn(raw, "\n");
 
@@ -154,10 +155,7 @@ struct HttpRequest *parse_request(const char *raw) {
         // Add null terminating char to end of header value
         header->value[len] = '\0';
 
-        /**
-         * TODO: What if line ends with \r\n
-        */
-        // Move to next header
+        // Move to next header (passed <CR> or <LF>)
         raw += len + 1;
 
         // Set pointer to prev header
@@ -180,11 +178,13 @@ struct HttpRequest *parse_request(const char *raw) {
         return request;
     }
 
-    /**
-     * TODO: What if line ends with \r\n
-    */
     // Move to start of body
-    raw += 1;
+    ++raw;
+
+    // If pointing at \n then is CRLF and we only moved passed the \r
+    if (raw[0] == '\n') {
+        ++raw;
+    }
 
     // Length of body
     len = strlen(raw);
@@ -238,6 +238,13 @@ int handle_conn(int sockfd) {
     printf("Path: %s \n", request->path);
     printf("Version: %s \n", request->version);
     printf("Body: %s \n", request->body);
+
+    struct HttpRequestHeader *h;
+
+    printf("Headers: \n");
+    for (h = request->headers; h; h = h->next) {
+        printf("%s: %s\n", h->name, h->value);
+    }
 
     /**
      * TODO: Free the memory allocated for the request struct
