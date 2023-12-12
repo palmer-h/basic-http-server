@@ -11,11 +11,12 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <ctype.h>
+#include <time.h>
 
 #define PORT "3000"
 #define BACKLOG 10
 
-typedef enum HttpMethod {GET, POST, PUT, DELETE} HttpMethod;
+typedef enum HttpMethod { GET, POST, PUT, DELETE } HttpMethod;
 
 typedef struct HttpRequestHeader {
     char *name;
@@ -30,6 +31,24 @@ typedef struct HttpRequest {
     struct HttpRequestHeader *headers;
     char *body;
 } HttpRequest;
+
+typedef struct HttpResponse {
+    char *status;
+    char *reason;
+    struct HttpRequestHeader *headers;
+    char *body;
+} HttpResponse;
+
+const char *HttpMethods[] = { "GET", "POST", "PUT", "DELETE" };
+
+/**
+ * Return HTTP specification compliant current datetime string (01, Jan 2000 23:59:59 GMT)
+*/
+void get_current_date_time(char *s) {
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    strftime(s, 30, "%a, %d %Y %b %X %Z", tm);
+}
 
 /**
  * Free memory allocated for the request struct header
@@ -239,6 +258,35 @@ struct HttpRequest *parse_request(const char *raw) {
     return request;
 }
 
+struct HttpResponse *handle_request(struct HttpRequest *req) {
+    struct HttpResponse *res = NULL;
+    struct HttpRequestHeader *header = NULL;
+    char date[30];
+
+    // Allocate memory for response struct
+    res = malloc(sizeof(struct HttpResponse));
+
+    if (!res) {
+        return NULL;
+        // TODO: Free res memory
+    }
+
+    // Allocate 4 bytes for status - 3 digit code + null terminating char
+    res->status = malloc(4);
+
+    get_current_date_time(date);
+
+    printf("Status: %s \n", res->status);
+    printf("Date: %s\n", date);
+
+    printf("Headers: \n");
+    for (header = req->headers; header; header = header->next) {
+        printf("%s: %s\n", header->name, header->value);
+    }
+
+    return res;
+}
+
 int handle_conn(int sockfd) {
     ssize_t bytes_recv, total_recv = 0;
     char buffer[2048];
@@ -264,22 +312,13 @@ int handle_conn(int sockfd) {
     }
 
     struct HttpRequest *request = parse_request(buffer);
-    struct HttpRequestHeader *header;
 
     if (request == NULL) {
         free_request(request);
         return -1;
     }
 
-    printf("Method: %d \n", request->method);
-    printf("Path: %s \n", request->path);
-    printf("Version: %s \n", request->version);
-    printf("Body: %s \n", request->body);
-
-    printf("Headers: \n");
-    for (header = request->headers; header; header = header->next) {
-        printf("%s: %s\n", header->name, header->value);
-    }
+    handle_request(request);
 
     free_request(request);
 
