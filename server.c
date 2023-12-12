@@ -31,6 +31,32 @@ typedef struct HttpRequest {
     char *body;
 } HttpRequest;
 
+/**
+ * Free memory allocated for the request struct header
+*/
+void free_header(struct HttpRequestHeader *h) {
+    if (h) {
+        free(h->name);
+        free(h->value);
+        free_header(h->next);
+        free(h);
+    }
+}
+
+/**
+ * Free memory allocated for the request struct
+*/
+void free_request(struct HttpRequest *request) {
+    free(request->path);
+    free(request->version);
+    free_header(request->headers);
+    free(request->body);
+    free(request);
+}
+
+/**
+ * Accepts a raw http request buffer and returns a request struct
+*/
 struct HttpRequest *parse_request(const char *raw) {
     struct HttpRequest *request = NULL;
     struct HttpRequestHeaders *headers = NULL;
@@ -40,6 +66,7 @@ struct HttpRequest *parse_request(const char *raw) {
     request = malloc(sizeof(struct HttpRequest));
 
     if (!request) {
+        free_request(request);
         return NULL;
     }
 
@@ -55,6 +82,7 @@ struct HttpRequest *parse_request(const char *raw) {
     } else if (memcmp(raw, "DELETE", 6) == 0) {
         request->method = DELETE;
     } else {
+        free_request(request);
         return NULL;
     }
 
@@ -68,6 +96,7 @@ struct HttpRequest *parse_request(const char *raw) {
     request->path = malloc(len + 1);
 
     if (!request->path) {
+        free_request(request);
         return NULL;
     }
 
@@ -92,6 +121,7 @@ struct HttpRequest *parse_request(const char *raw) {
     request->version = malloc(len + 1);
 
     if (!request->version) {
+        free_request(request);
         return NULL;
     }
 
@@ -124,6 +154,7 @@ struct HttpRequest *parse_request(const char *raw) {
         header->name = malloc(len + 1);
 
         if (!header->name) {
+            free_request(request);
             return NULL;
         }
 
@@ -140,6 +171,8 @@ struct HttpRequest *parse_request(const char *raw) {
             ++raw;
         }
 
+        // TODO: correct length (could be "\r" instead of "\n"!)
+
         // Length of header value
         len = strcspn(raw, "\n");
 
@@ -147,6 +180,7 @@ struct HttpRequest *parse_request(const char *raw) {
         header->value = malloc(len + 1);
 
         if (!header->value) {
+            free_request(request);
             return NULL;
         }
 
@@ -170,7 +204,7 @@ struct HttpRequest *parse_request(const char *raw) {
     */
 
     /**
-     * TODO: Check content-size header
+     * TODO: Check content-size header - Make mandatory?
     */
 
     // If GET request then body is redundant so return request as is
@@ -193,6 +227,7 @@ struct HttpRequest *parse_request(const char *raw) {
     request->body = malloc(len + 1);
 
     if (!request->body) {
+        free_request(request);
         return NULL;
     }
 
@@ -229,8 +264,10 @@ int handle_conn(int sockfd) {
     }
 
     struct HttpRequest *request = parse_request(buffer);
+    struct HttpRequestHeader *header;
 
     if (request == NULL) {
+        free_request(request);
         return -1;
     }
 
@@ -239,17 +276,12 @@ int handle_conn(int sockfd) {
     printf("Version: %s \n", request->version);
     printf("Body: %s \n", request->body);
 
-    struct HttpRequestHeader *h;
-
     printf("Headers: \n");
-    for (h = request->headers; h; h = h->next) {
-        printf("%s: %s\n", h->name, h->value);
+    for (header = request->headers; header; header = header->next) {
+        printf("%s: %s\n", header->name, header->value);
     }
 
-    /**
-     * TODO: Free the memory allocated for the request struct
-    */
-    // ...
+    free_request(request);
 
     return 0;
 }
