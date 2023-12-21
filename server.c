@@ -111,19 +111,22 @@ struct HttpRequest *parse_request(const char *raw) {
     // Path length
     len = strcspn(raw, " ");
 
-    // Allocate correct amount of memory based on path length (+ 1 for null terminating char)
-    request->path = malloc(len + 1);
+    // Allocate correct amount of memory based on path length (+ 1 for `.` at start of path, + 1 for null terminating char)
+    request->path = malloc(len + 2);
 
     if (!request->path) {
         free_request(request);
         return NULL;
     }
 
-    // Copy path to struct member
-    memcpy(request->path, raw, len);
+    // Add `.` to start of path
+    request->path[0] = '.';
+
+    // Copy path to struct member (append to `.`)
+    memcpy(&request->path[1], raw, len);
 
     // Add null terminating char to end of path
-    request->path[len] = '\0';
+    request->path[len + 1] = '\0';
 
     // Move pointer to start of HTTP version
     raw += len + 1;
@@ -258,10 +261,29 @@ struct HttpRequest *parse_request(const char *raw) {
     return request;
 }
 
+int read_requested_file(char *path, char *buf) {
+    FILE *fp = fopen(path, "r");
+    size_t numBytes;
+
+    if (fp == NULL) {
+        printf("Here!\n");
+        return -1;
+    }
+
+    while((numBytes = fread(buf, sizeof(buf) + numBytes, 512, fp)) > 0) {
+        continue;
+    }
+
+    fclose(fp);
+
+    return 0;
+}
+
 struct HttpResponse *handle_request(struct HttpRequest *req) {
     struct HttpResponse *res = NULL;
     struct HttpRequestHeader *header = NULL;
     char date[30];
+    char *body;
 
     // Allocate memory for response struct
     res = malloc(sizeof(struct HttpResponse));
@@ -274,15 +296,31 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
     // Allocate 4 bytes for status - 3 digit code + null terminating char
     res->status = malloc(4);
 
+    if (read_requested_file(req->path, body) == -1) {
+        strcpy(res->status, "404");
+        res->reason = "Not found";
+        return res;
+    };
+
     get_current_date_time(date);
 
-    printf("Status: %s \n", res->status);
-    printf("Date: %s\n", date);
+    // Allocate num of byes for body
+    res->body = malloc(sizeof(body));
 
-    printf("Headers: \n");
+    strcpy(res->body, body);
+
+    res->status = "200";
+    res->reason = "OK";
+
+/*     printf("Headers: \n");
     for (header = req->headers; header; header = header->next) {
         printf("%s: %s\n", header->name, header->value);
-    }
+    } */
+
+    printf("Status: %s \n", res->status);
+    printf("Reason: %s \n", res->reason);
+    printf("Body: %s \n", res->body);
+
 
     return res;
 }
@@ -364,7 +402,7 @@ int main() {
         exit(1);
     }
 
-    printf("Waiting for connections... \n");
+    printf("Waiting for connections... \n\n");
 
     for(;;) {
         sin_size = sizeof conn_addr;
@@ -378,7 +416,7 @@ int main() {
         inet_ntop(conn_addr.ss_family,
             (struct sockaddr *)&conn_addr,
             s, sizeof s);
-        printf("server: got connection from %s\n", s);
+        printf("Got connection from %s\n\n", s);
 
         // Create child process so parent can continue listening
         pid = fork();
