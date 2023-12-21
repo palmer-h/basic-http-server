@@ -333,14 +333,15 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
     res->reason = "OK";
     res->body = "This is the response body";
 
-/*     printf("Headers: \n");
-    for (header = req->headers; header; header = header->next) {
-        printf("%s: %s\n", header->name, header->value);
-    } */
+    header = malloc(sizeof(HttpRequestHeader));
 
-    printf("Status: %s \n", res->status);
-    printf("Reason: %s \n", res->reason);
-    printf("Body: %s \n", res->body);
+    // Add date header
+    header->name = "Date";
+    header->value = malloc(30);
+    strcpy(header->value, date);
+    header->next = NULL;
+
+    res->headers = header;
 
     return res;
 }
@@ -349,6 +350,7 @@ int handle_conn(int sockfd) {
     ssize_t bytes_recv, total_recv = 0;
     char buffer[2048];
     char *method[8], *path[2048];
+    char res[2056];
 
     while((bytes_recv = recv(sockfd, buffer + total_recv, sizeof buffer - total_recv, 0)) > 0) {
         if (bytes_recv == -1) {
@@ -375,7 +377,33 @@ int handle_conn(int sockfd) {
         return -1;
     }
 
-    handle_request(request);
+    struct HttpResponse *response = handle_request(request);
+
+    if (response ==  NULL) {
+        return -1;
+    }
+
+    // Initial response line
+    snprintf(res, 2056, "%s %s %s\n\n", request->version, response->status, response->reason);
+
+    struct HttpRequestHeader *header;
+
+    // Headers
+    for (header = response->headers; header; header = header->next) {
+        strcat(res, header->name);
+        strcat(res, ": ");
+        strcat(res, header->value);
+        strcat(res, "\n");
+    }
+
+    strcat(res, "\n");
+
+    // Body
+    strcat(res, response->body);
+
+    if (send(sockfd, res, 2056, 0) == -1) {
+        return -1;
+    };
 
     free_request(request);
 
