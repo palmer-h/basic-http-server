@@ -39,8 +39,6 @@ typedef struct HttpResponse {
     char *body;
 } HttpResponse;
 
-const char *HttpMethods[] = { "GET", "POST", "PUT", "DELETE" };
-
 /**
  * Return HTTP specification compliant current datetime string (01, Jan 2000 23:59:59 GMT)
 */
@@ -80,6 +78,7 @@ struct HttpRequest *parse_request(const char *raw) {
     struct HttpRequest *request = NULL;
     struct HttpRequestHeaders *headers = NULL;
     size_t len = strcspn(raw, " "); // Store length of each part (method, path, etc.)
+    size_t bodyLen = 0; // Length of body
 
     // Allocate memory for request struct
     request = malloc(sizeof(struct HttpRequest));
@@ -147,14 +146,30 @@ struct HttpRequest *parse_request(const char *raw) {
         return NULL;
     }
 
+    // Validate version length
+    if (len != 8) {
+        free_request(request);
+        return NULL;
+    }
+
+    // Validate version
+    int i = 0;
+    while (i < len) {
+        if (raw[i] != "HTTP/1.0"[i]) {
+            free_request(request);
+            return NULL;
+        }
+        ++i;
+    }
+
     // Copy version to struct member
     memcpy(request->version, raw, len);
 
     // Add null terminating char to end of version
-    request->version[len] = '\0';
+    request->version[len + 1] = '\0';
 
     // Move pointer to start of first line of headers (passed <CR> or <LF>)
-    ++raw;
+    raw += len + 1;
 
     // If pointing at \n then is CRLF and we only moved passed the \r
     if (raw[0] == '\n') {
@@ -225,14 +240,25 @@ struct HttpRequest *parse_request(const char *raw) {
      * TODO: Combine path and hostname header to form full URL?
     */
 
-    /**
-     * TODO: Check content-size header - Make mandatory?
-    */
-
     // If GET request then body is redundant so return request as is
     if (request->method == GET) {
         return request;
     }
+
+    // Get body length
+    for (header = request->headers; header; header = header->next) {
+        if (strcmp(header->name, "Content-Length") == 0) {
+            bodyLen = atoi(header->value);
+        }
+    }
+
+    // Content-Length header is required
+    if (bodyLen == 0) {
+        free_request(request);
+        return NULL;
+    }
+
+    len = bodyLen;
 
     // Move to start of body
     ++raw;
@@ -241,9 +267,6 @@ struct HttpRequest *parse_request(const char *raw) {
     if (raw[0] == '\n') {
         ++raw;
     }
-
-    // Length of body
-    len = strlen(raw);
 
     // Allocate memory based on length of body (+ 1 for null terminator)
     request->body = malloc(len + 1);
@@ -266,7 +289,7 @@ int read_requested_file(char *path, char *buf) {
     size_t numBytes;
 
     if (fp == NULL) {
-        printf("Here!\n");
+        perror("Error reading file");
         return -1;
     }
 
@@ -299,18 +322,16 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
     if (read_requested_file(req->path, body) == -1) {
         strcpy(res->status, "404");
         res->reason = "Not found";
+        res->body = "Not found";
         return res;
     };
 
     get_current_date_time(date);
 
     // Allocate num of byes for body
-    res->body = malloc(sizeof(body));
-
-    strcpy(res->body, body);
-
     res->status = "200";
     res->reason = "OK";
+    res->body = "This is the response body";
 
 /*     printf("Headers: \n");
     for (header = req->headers; header; header = header->next) {
@@ -320,7 +341,6 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
     printf("Status: %s \n", res->status);
     printf("Reason: %s \n", res->reason);
     printf("Body: %s \n", res->body);
-
 
     return res;
 }
@@ -352,7 +372,6 @@ int handle_conn(int sockfd) {
     struct HttpRequest *request = parse_request(buffer);
 
     if (request == NULL) {
-        free_request(request);
         return -1;
     }
 
@@ -416,7 +435,8 @@ int main() {
         inet_ntop(conn_addr.ss_family,
             (struct sockaddr *)&conn_addr,
             s, sizeof s);
-        printf("Got connection from %s\n\n", s);
+        printf("-------------------------------\n");
+        printf("Accepted connection from %s\n\n", s);
 
         // Create child process so parent can continue listening
         pid = fork();
@@ -437,12 +457,14 @@ int main() {
             close(sockfd); // Child does not need this
 
             if (handle_conn(new_fd) == -1) {
+                printf("Error handling connection from %s\n", s);
                 if (send(new_fd, "Error handling connection", 25, 0) == -1) {
                     printf("Error sending to %s\n", s);
                 }
             }
 
-            close(new_fd);            
+            printf("-------------------------------\n");
+            close(new_fd);
             _exit(0);
         }
     }
