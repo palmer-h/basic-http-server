@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <ctype.h>
 #include <time.h>
+#include <math.h>
 
 #define PORT "3000"
 #define BACKLOG 10
@@ -63,12 +64,27 @@ void free_header(struct HttpRequestHeader *h) {
 /**
  * Free memory allocated for the request struct
 */
-void free_request(struct HttpRequest *request) {
-    free(request->path);
-    free(request->version);
-    free_header(request->headers);
-    free(request->body);
-    free(request);
+void free_request(struct HttpRequest *req) {
+    free(req->path);
+    free(req->version);
+    free_header(req->headers);
+    free(req->body);
+    free(req);
+}
+
+/**
+ * Free memory allocated for the response struct
+*/
+void free_response(struct HttpResponse *res) {
+    free(res->status);
+    free(res->reason);
+    if (res->body) {
+        free(res->body);
+    }
+    if (res->headers) {
+        free(res->headers);
+    }
+    free(res);
 }
 
 /**
@@ -150,16 +166,6 @@ struct HttpRequest *parse_request(const char *raw) {
     if (len != 8) {
         free_request(request);
         return NULL;
-    }
-
-    // Validate version
-    int i = 0;
-    while (i < len) {
-        if (raw[i] != "HTTP/1.0"[i]) {
-            free_request(request);
-            return NULL;
-        }
-        ++i;
     }
 
     // Copy version to struct member
@@ -284,27 +290,10 @@ struct HttpRequest *parse_request(const char *raw) {
     return request;
 }
 
-int read_requested_file(char *path, char *buf) {
-    FILE *fp = fopen(path, "r");
-    size_t numBytes;
-
-    if (fp == NULL) {
-        perror("Error reading file");
-        return -1;
-    }
-
-    while((numBytes = fread(buf, sizeof(buf) + numBytes, 512, fp)) > 0) {
-        continue;
-    }
-
-    fclose(fp);
-
-    return 0;
-}
-
 struct HttpResponse *handle_request(struct HttpRequest *req) {
     struct HttpResponse *res = NULL;
     struct HttpRequestHeader *header = NULL;
+    struct HttpRequestHeader *lastHeader = NULL;
     char date[30];
     char *body;
 
@@ -312,34 +301,68 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
     res = malloc(sizeof(struct HttpResponse));
 
     if (!res) {
+        free_response(res);
         return NULL;
-        // TODO: Free res memory
     }
 
-    // Allocate 4 bytes for status - 3 digit code + null terminating char
-    res->status = malloc(4);
-
-    if (read_requested_file(req->path, body) == -1) {
-        strcpy(res->status, "404");
-        res->reason = "Not found";
-        res->body = "Not found";
-        return res;
-    };
-
-    get_current_date_time(date);
-
-    // Allocate num of byes for body
-    res->status = "200";
-    res->reason = "OK";
-    res->body = "This is the response body";
-
-    header = malloc(sizeof(HttpRequestHeader));
-
     // Add date header
+    get_current_date_time(date);
+    header = malloc(sizeof(HttpRequestHeader));
     header->name = "Date";
     header->value = malloc(30);
     strcpy(header->value, date);
     header->next = NULL;
+
+    // Add server header
+    lastHeader = header;
+    header = malloc(sizeof(HttpRequestHeader));
+    header->name = "Server";
+    header->value = malloc(17);
+    strcpy(header->value, "Palmers Basic HTTP");
+    header->next = lastHeader;
+
+    res->headers = header;
+
+    // Check version is supported
+    if (strcmp(req->version, "HTTP/1.0") != 0) {
+        res->status = "505";
+        res->reason = "HTTP Version Not Supported";
+        return res;
+    }
+
+    FILE *fp = fopen(req->path, "r");
+
+    if (fp == NULL) {
+        res->status = "404";
+        res->reason = "Not found";
+        return res;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    body = malloc(fsize + 1);
+    fread(body, fsize, 1, fp);
+    fclose(fp);
+
+    body[fsize] = 0;
+
+    res->status = "200";
+    res->reason = "OK";
+
+    body[fsize + 1] = '\0';
+
+    res->body = malloc(strlen(body));
+    memcpy(res->body, body, strlen(body));
+
+    // Add content length header
+    lastHeader = header;
+    header = malloc(sizeof(HttpRequestHeader));
+    header->name = "Content-Length";
+    header->value = malloc(sizeof(char)*(int)log10(strlen(body)));
+    sprintf(header->value, "%lu", strlen(body));
+    header->next = lastHeader;
 
     res->headers = header;
 
@@ -350,7 +373,7 @@ int handle_conn(int sockfd) {
     ssize_t bytes_recv, total_recv = 0;
     char buffer[2048];
     char *method[8], *path[2048];
-    char res[2056];
+    char *res;
 
     while((bytes_recv = recv(sockfd, buffer + total_recv, sizeof buffer - total_recv, 0)) > 0) {
         if (bytes_recv == -1) {
@@ -379,29 +402,41 @@ int handle_conn(int sockfd) {
 
     struct HttpResponse *response = handle_request(request);
 
-    if (response ==  NULL) {
+    if (response == NULL) {
         return -1;
     }
 
+    size_t resLen = strlen(request->version) + strlen(response->status) + strlen(response->reason) + 4;
+
+    res = malloc(resLen);
+
     // Initial response line
-    snprintf(res, 2056, "%s %s %s\n\n", request->version, response->status, response->reason);
+    snprintf(res, resLen, "%s %s %s\n", request->version, response->status, response->reason);
 
     struct HttpRequestHeader *header;
 
     // Headers
     for (header = response->headers; header; header = header->next) {
+        resLen = resLen + strlen(header->name) + strlen(header->value) + 3;
+        res = realloc(res, resLen);
         strcat(res, header->name);
         strcat(res, ": ");
         strcat(res, header->value);
         strcat(res, "\n");
     }
 
+    ++resLen;
+    res = realloc(res, resLen);
     strcat(res, "\n");
 
     // Body
-    strcat(res, response->body);
+    if (response->body) {
+        resLen += strlen(response->body) + 1;
+        res = realloc(res, resLen);
+        strcat(res, response->body);
+    }
 
-    if (send(sockfd, res, 2056, 0) == -1) {
+    if (send(sockfd, res, resLen, 0) == -1) {
         return -1;
     };
 
