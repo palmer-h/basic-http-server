@@ -16,6 +16,7 @@
 
 #define PORT "3000"
 #define BACKLOG 10
+#define MIME_TYPES_PATH "./mime-types.tsv"
 
 typedef enum HttpMethod { GET, POST, PUT, DELETE } HttpMethod;
 
@@ -85,6 +86,42 @@ void free_response(struct HttpResponse *res) {
         free(res->headers);
     }
     free(res);
+}
+
+/**
+ * Gets MIME type from file path
+*/
+void get_mime_type_from_path(char *mime, char *path) {
+    char line[128];
+    char *token;
+    char *ext = strrchr(path, '.');
+    int lineCount = 1;
+
+    // Ignore '.' at start of extension
+    ++ext;
+
+	FILE *mime_types = fopen(MIME_TYPES_PATH, "r");
+
+    if (mime_types == NULL) {
+        perror("Error opening MIME types file");
+        return;
+    }
+
+    // Go through MIME types .tsv file line by line
+    while(fgets(line, sizeof(line), mime_types) != NULL) {
+        if (lineCount > 1) {
+            if ((token = strtok(line, "\t")) != NULL) {
+                if (strcmp(token, ext) == 0) {
+                    token = strtok(NULL, "\t");
+                    strcpy(mime, token);
+                    break;
+                }
+            }
+        }
+        ++lineCount;
+    }
+
+    fclose(mime_types);
 }
 
 /**
@@ -290,6 +327,7 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
     struct HttpRequestHeader *lastHeader = NULL;
     char date[30];
     char *body;
+    char *mimeType = NULL;
 
     // Allocate memory for response struct
     res = malloc(sizeof(struct HttpResponse));
@@ -349,6 +387,24 @@ struct HttpResponse *handle_request(struct HttpRequest *req) {
 
     res->body = malloc(strlen(body));
     memcpy(res->body, body, strlen(body));
+
+    mimeType = malloc(128);
+
+    get_mime_type_from_path(mimeType, req->path);
+
+    if (mimeType == NULL) {
+       strcpy(mimeType, "application/octet-stream");
+    }
+
+    // Add content type header
+    lastHeader = header;
+    header = malloc(sizeof(HttpRequestHeader));
+    header->name = "Content-Type";
+    header->value = malloc(strlen(mimeType));
+    strcpy(header->value, mimeType);
+    header->next = lastHeader;
+
+    free(mimeType);
 
     // Add content length header
     lastHeader = header;
