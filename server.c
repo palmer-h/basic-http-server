@@ -162,12 +162,6 @@ struct HttpRequest *parse_request(const char *raw) {
         return NULL;
     }
 
-    // Validate version length
-    if (len != 8) {
-        free_request(request);
-        return NULL;
-    }
-
     // Copy version to struct member
     memcpy(request->version, raw, len);
 
