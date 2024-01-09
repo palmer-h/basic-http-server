@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "mime.h"
 
@@ -12,16 +14,17 @@ int mime_type_from_path(char *mime, char *path) {
     char *token;
     char *ext = strrchr(path, '.');
     int lineCount = 1;
+    FILE *mime_types;
 
     if ((ext = strrchr(path, '.')) == NULL) {
         strcpy(mime, DEFAULT_MIME);
-        return;
+        return 0;
     }
 
     // Ignore '.' at start of extension
     ++ext;
 
-	FILE *mime_types = fopen(MIME_TYPES_PATH, "r");
+	mime_types = fopen(MIME_TYPES_PATH, "r");
 
     if (mime_types == NULL) {
         return -1;
@@ -41,7 +44,7 @@ int mime_type_from_path(char *mime, char *path) {
         ++lineCount;
     }
 
-    if (!mime == NULL) {
+    if (mime == NULL) {
         strcpy(mime, DEFAULT_MIME);
     }
 

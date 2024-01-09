@@ -1,7 +1,11 @@
 #ifndef HTTP_H_
 #define HTTP_H_
 
+#define PORT "3000"
+#define HTTP_VERSION "HTTP/1.0"
 #define HTTP_HEADER_DATE_FORMAT "%a, %d %Y %b %X %Z"
+#define HTTP_HEADER_DATE_LENGTH 30
+#define SERVER_NAME "Palmers Basic HTTP"
 
 typedef enum HttpMethod { GET, POST, PUT, DELETE } HttpMethod;
 
@@ -21,8 +25,6 @@ typedef struct HttpRequest {
 } HttpRequest;
 
 typedef struct HttpResponse {
-    char *status;
-    char *reason;
     struct HttpRequestHeader *headers;
     char *body;
 } HttpResponse;

@@ -1,11 +1,14 @@
 #include <stdio.h>
+#include <unistd.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 
 #include "socket.h"
 
-int create_listening_socket(int *sockfd) {
+int create_listening_socket() {
+    int sockfd;
     struct addrinfo hints, *servinfo;
 
     memset(&hints, 0, sizeof hints);
@@ -38,4 +41,6 @@ int create_listening_socket(int *sockfd) {
         close(sockfd);
         return -1;
     }
+
+    return sockfd;
 }
