@@ -112,13 +112,15 @@ int send_response(int sockfd, struct HttpResponse *res, char *status, char *reas
     strcat(resStr, "\n");
 
     // Add headers from res struct
-    for (header = res->headers; header; header = header->next) {
-        length = length + strlen(header->name) + strlen(header->value) + 3;
-        resStr = realloc(resStr, length);
-        strcat(resStr, header->name);
-        strcat(resStr, ": ");
-        strcat(resStr, header->value);
-        strcat(resStr, "\n");
+    if (res && res->headers) {
+        for (header = res->headers; header; header = header->next) {
+            length = length + strlen(header->name) + strlen(header->value) + 3;
+            resStr = realloc(resStr, length);
+            strcat(resStr, header->name);
+            strcat(resStr, ": ");
+            strcat(resStr, header->value);
+            strcat(resStr, "\n");
+        }
     }
 
     ++length;
@@ -126,10 +128,14 @@ int send_response(int sockfd, struct HttpResponse *res, char *status, char *reas
     strcat(resStr, "\n");
 
     // Body
-    if (res->body) {
+    if (res && res->body) {
         length += strlen(res->body) + 1;
         resStr = realloc(resStr, length);
         strcat(resStr, res->body);
+    } else {
+        length += strlen(reason) + 1;
+        resStr = realloc(resStr, length);
+        strcat(resStr, reason);
     }
 
     if (send(sockfd, resStr, length, 0) == -1) {
@@ -180,6 +186,8 @@ int handle_conn(int sockfd) {
     }
 
     res = malloc(sizeof(struct HttpResponse));
+
+    return -1;
 
     if (send_response(sockfd, res, "200", "OK") == -1) {
         return -1;
@@ -240,7 +248,7 @@ int main() {
 
             if (handle_conn(newSockfd) == -1) {
                 printf("Error handling connection from %s\n", ip);
-                if (send(newSockfd, "Error handling connection", 25, 0) == -1) {
+                if (send_response(newSockfd, NULL, "500", "Internal Server Error") == -1) {
                     printf("Error sending to %s\n", ip);
                 }
             }
