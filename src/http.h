@@ -9,6 +9,14 @@
 #define HTTP_STATUS_REASON_MAX_SIZE 32
 
 /**
+ * HTTP methods
+*/
+#define HTTP_METHOD_GET "GET"
+#define HTTP_METHOD_POST "POST"
+#define HTTP_METHOD_PUT "PUT"
+#define HTTP_METHOD_DELETE "DELETE"
+
+/**
  * HTTP status codes
 */
 #define HTTP_STATUS_CONTINUE 100

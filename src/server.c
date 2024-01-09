@@ -158,11 +158,201 @@ int send_response(int sockfd, struct HttpResponse *res, int status) {
 }
 
 /**
+ * Parses raw request into HttpRequest struct
+*/
+struct HttpRequest *parse_request(int sockfd, const char *raw) {
+    struct HttpRequest *req = NULL;
+    struct HttpRequestHeaders *headers = NULL;
+    struct HttpRequestHeader *header = NULL, *last = NULL;
+    size_t len = strcspn(raw, " "); // Store length of each part (method, path, etc.)
+    size_t bodyLen = 0;
+
+    req = malloc(sizeof(struct HttpRequest));
+
+    if (!req || !len || len < strlen(HTTP_METHOD_GET) || len > strlen(HTTP_METHOD_DELETE)) {
+        free_request(req);
+        send_response(sockfd, NULL, !req ? HTTP_STATUS_INTERNAL_SERVER_ERROR : HTTP_STATUS_BAD_REQUEST);
+        return NULL;
+    }
+
+    /**
+     * TODO: Figure what the below is doing and is it neccessary?
+    */
+    // memset(req, 0, sizeof(struct HttpRequest));
+
+    // If valid method, copy method to struct (already includes null terminator)
+    if (len == strlen(HTTP_METHOD_GET) && memcmp(raw, HTTP_METHOD_GET, len) == 0) {
+        req->method = GET;
+    } else if (len == strlen(HTTP_METHOD_POST) && memcmp(raw, HTTP_METHOD_POST, len) == 0) {
+        req->method = POST;
+    } else if (len == strlen(HTTP_METHOD_PUT) && memcmp(raw, HTTP_METHOD_PUT, len) == 0) {
+        req->method = PUT;
+    } else if (len == strlen(HTTP_METHOD_DELETE) && memcmp(raw, HTTP_METHOD_DELETE, len) == 0) {
+        req->method = DELETE;
+    } else {
+        free_request(req);
+        send_response(sockfd, NULL, HTTP_STATUS_NOT_IMPLEMENTED);
+        return NULL;
+    }
+
+    // Move pointer to start of path and determine path length
+    raw += len + 1;
+    len = strcspn(raw, " ");
+
+    // No path - 400 Bad Request
+    if (!len) {
+        free_request(req);
+        send_response(sockfd, NULL, HTTP_STATUS_BAD_REQUEST);
+        return NULL;
+    }
+
+    // Allocate correct amount of memory based on path length (+ 1 for `.` at start of path, + 1 for null terminating char)
+    req->path = malloc(len + 2);
+
+    if (!req->path) {
+        free_request(req);
+        send_response(sockfd, NULL, HTTP_STATUS_INTERNAL_SERVER_ERROR);
+        return NULL;
+    }
+
+    // Add `.` to start of path struct member, append path from raw request and add null terminating char
+    req->path[0] = '.';
+    memcpy(&req->path[1], raw, len);
+    req->path[len + 1] = '\0';
+
+    // Move pointer to start of HTTP version
+    raw += len + 1;
+
+    // Length of HTTP version
+    len = strcspn(raw, "\n");
+
+    // If second to last char is \r, is CLRF so reduce length by 1
+    if (raw[len -1] == '\r') {
+        --len;
+    }
+
+    // Check version is supported
+    if (memcmp(raw, HTTP_VERSION, len) != 0) {
+        free_request(req);
+        send_response(sockfd, NULL, HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED);
+        return NULL;
+    }
+
+    // Allocate memory for HTTP version based on length of HTTP version (+ 1 for null terminating char)
+    req->version = malloc(len + 1);
+
+    if (!req->version) {
+        free_request(req);
+        send_response(sockfd, NULL, HTTP_STATUS_INTERNAL_SERVER_ERROR);
+        return NULL;
+    }
+
+    // Copy version to struct member and add null terminating char
+    memcpy(req->version, raw, len);
+    req->version[len + 1] = '\0';
+
+    // Move pointer to start of first line of headers (passed <CR> or <LF>)
+    raw += len + 1;
+
+    // If pointing at \n then is CRLF and we only moved passed the \r
+    if (raw[0] == '\n') {
+        ++raw;
+    }
+
+    // While next line exists and does not start with \r or \n (blank line indicates end of headers and start of body)
+    while (raw[0] && raw[0] != '\n' && raw[0] != '\r') {
+        last = header;
+
+        header = malloc(sizeof(HttpRequestHeader));
+
+        // Length of header name
+        len = strcspn(raw, ":");
+
+        // No header value - 400 Bad Request
+        if (!len) {
+            free_request(req);
+            send_response(sockfd, NULL, HTTP_STATUS_BAD_REQUEST);
+            return NULL;
+        }
+
+        // Allocate memory based on length of header name (+ 1 for null terminator)
+        header->name = malloc(len + 1);
+
+        if (!header->name) {
+            free_request(req);
+            send_response(sockfd, NULL, HTTP_STATUS_INTERNAL_SERVER_ERROR);
+            return NULL;
+        }
+
+        memcpy(header->name, raw, len);
+
+        // Add null terminating char to end of header name
+        header->name[len] = '\0';
+
+        // Move raw req buffer passed colon
+        raw += len + 1;
+
+        // Ignore any spaces between ":" and value (e.g: Header-Name:   header-value)
+        while (*raw == ' ') {
+            ++raw;
+        }
+
+        // Length of header value
+        len = strcspn(raw, "\n");
+
+        // If second to last char is CR then request uses CRLF so reduce length by 1
+        if (raw[len - 1] == '\r') {
+            --len;
+        }
+
+        // Allocate memory based on length of header value (+ 1 for null terminator)
+        header->value = malloc(len + 1);
+
+        if (!header->value) {
+            free_request(req);
+            send_response(sockfd, NULL, HTTP_STATUS_INTERNAL_SERVER_ERROR);
+            return NULL;
+        }
+
+        memcpy(header->value, raw, len);
+
+        // Add null terminating char to end of header value
+        header->value[len] = '\0';
+
+        // Move to next header (passed <CR> or <LF>)
+        if (raw[len] == '\r') {
+            raw += len + 2;
+        } else {
+            raw += len + 1;
+        }
+
+        // Set next header pointer to prev header
+        header->next = last;
+    }
+
+    // Move passed CR if request uses CRLF
+    if (raw[0] == '\r') {
+        ++raw;
+    }
+
+    // Set headers
+    req->headers = header;
+
+    // If GET request then body is redundant so return request as is
+    if (req->method == GET) {
+        return req;
+    }
+
+    return NULL;
+}
+
+/**
  * Handles child process on new connection
 */
 int handle_conn(int sockfd) {
     int bufSize = 1024;
     ssize_t bytesRecv, totalRecv = 0;
+    struct HttpRequest *req = NULL;
     struct HttpResponse *res = NULL;
     char *rawReq = malloc(bufSize); // TODO: Need to free this memory!
 
@@ -194,9 +384,18 @@ int handle_conn(int sockfd) {
         totalRecv += bytesRecv;
     }
 
+    req = parse_request(sockfd, rawReq);
+
+    if (!req) {
+        // TODO: Do something? Log?
+        return 0;
+    }
+
     res = malloc(sizeof(struct HttpResponse));
 
-    if (send_response(sockfd, res, 200) == -1) {
+    free_request(req);
+
+    if (send_response(sockfd, res, HTTP_STATUS_OK) == -1) {
         return -1;
     }
 
@@ -255,7 +454,7 @@ int main() {
 
             if (handle_conn(newSockfd) == -1) {
                 printf("Error handling connection from %s\n", ip);
-                if (send_response(newSockfd, NULL, 500) == -1) {
+                if (send_response(newSockfd, NULL, HTTP_STATUS_INTERNAL_SERVER_ERROR) == -1) {
                     printf("Error sending to %s\n", ip);
                 }
             }
