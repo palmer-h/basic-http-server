@@ -70,4 +70,6 @@ typedef struct HttpResponse {
     char *body;
 } HttpResponse;
 
+const char *reason_from_status_code(int status);
+
 #endif
