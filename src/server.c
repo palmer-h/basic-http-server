@@ -152,6 +152,8 @@ int handle_conn(int sockfd) {
     char *rawReq = malloc(bufSize);
 
     while((bytesRecv = recv(sockfd, rawReq + totalRecv, bufSize, 0)) > 0) {
+        int newBufSize;
+
         if (bytesRecv == -1) {
             return -1;
         }
@@ -166,9 +168,9 @@ int handle_conn(int sockfd) {
             return 0;
         }
 
-        // Double buffer size if newly recv bytes + total bytes is bigger than current buffer size
+        // Double buffer size if newly received chunk bytes + total received bytes is bigger than current buffer size
         if (bytesRecv + totalRecv > bufSize) {
-            int newBufSize = bufSize * 2;
+            newBufSize = bufSize * 2;
             rawReq = realloc(rawReq, newBufSize);
             bufSize = newBufSize;
         }
