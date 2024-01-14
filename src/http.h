@@ -17,6 +17,12 @@
 #define HTTP_METHOD_DELETE "DELETE"
 
 /**
+ * HTTP header names
+*/
+#define HTTP_HEADER_CONTENT_LENGTH "Content-Length"
+#define HTTP_HEADER_CONTENT_TYPE "Content-Type"
+
+/**
  * HTTP status codes
 */
 #define HTTP_STATUS_CONTINUE 100

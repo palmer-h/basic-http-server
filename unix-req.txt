@@ -1,4 +1,4 @@
-GET /files/example.txt HTTP/1.0
+POST /files/example.txt HTTP/1.0
 Host: example.com
 Another-Header: test-value
-
+Content-Length: 535

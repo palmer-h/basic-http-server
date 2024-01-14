@@ -52,6 +52,21 @@ void free_response(struct HttpResponse *res) {
 }
 
 /**
+ * Accepts a header name and returns pointer to value
+*/
+char *get_header_value(char *name, struct HttpRequestHeader *headers) {
+    struct HttpRequestHeader *header;
+
+    for (header = headers; header; header = header->next) {
+        if (strcasecmp(header->name, name) == 0) {
+            return header->value;
+        }
+    }
+
+    return NULL;
+}
+
+/**
  * Adds a header to a response
 */
 int add_response_header(char *name, char *value, struct HttpResponse *res) {
@@ -341,6 +356,12 @@ struct HttpRequest *parse_request(int sockfd, const char *raw) {
     // If GET request then body is redundant so return request as is
     if (req->method == GET) {
         return req;
+    }
+
+    char *hv;
+
+    if ((hv = get_header_value(HTTP_HEADER_CONTENT_LENGTH, req->headers)) != NULL) {
+        printf("Value: %s\n", hv);
     }
 
     return NULL;
