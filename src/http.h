@@ -7,6 +7,7 @@
 #define HTTP_HEADER_DATE_LENGTH 30
 #define SERVER_NAME "Palmers Basic HTTP"
 #define HTTP_STATUS_REASON_MAX_SIZE 32
+#define HTTP_MAX_BODY_SIZE 1000000
 
 /**
  * HTTP methods
@@ -83,6 +84,12 @@ typedef struct HttpResponse {
     struct HttpRequestHeader *headers;
     char *body;
 } HttpResponse;
+
+typedef struct HttpQueryParam {
+    char *key;
+    char *value;
+    struct HttpQueryParam *next;
+} HttpQueryParam;
 
 const char *reason_from_status_code(int status);
 

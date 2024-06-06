@@ -90,10 +90,9 @@ int add_response_header(char *name, char *value, struct HttpResponse *res) {
 }
 
 /**
- * Builds the response send to the client
+ * Builds and sends the response to the client
  * 
  * Accepts pointer to pre-malloced destination and HttpResponse struct
- * 
 */
 int send_response(int sockfd, struct HttpResponse *res, int status) {
     char *resStr;
@@ -180,7 +179,7 @@ struct HttpRequest *parse_request(int sockfd, const char *raw) {
     struct HttpRequestHeaders *headers = NULL;
     struct HttpRequestHeader *header = NULL, *last = NULL;
     size_t len = strcspn(raw, " "); // Store length of each part (method, path, etc.)
-    size_t bodyLen = 0;
+    char *contentLen;
 
     req = malloc(sizeof(struct HttpRequest));
 
@@ -189,11 +188,6 @@ struct HttpRequest *parse_request(int sockfd, const char *raw) {
         send_response(sockfd, NULL, !req ? HTTP_STATUS_INTERNAL_SERVER_ERROR : HTTP_STATUS_BAD_REQUEST);
         return NULL;
     }
-
-    /**
-     * TODO: Figure what the below is doing and is it neccessary?
-    */
-    // memset(req, 0, sizeof(struct HttpRequest));
 
     // If valid method, copy method to struct (already includes null terminator)
     if (len == strlen(HTTP_METHOD_GET) && memcmp(raw, HTTP_METHOD_GET, len) == 0) {
@@ -358,13 +352,23 @@ struct HttpRequest *parse_request(int sockfd, const char *raw) {
         return req;
     }
 
-    char *hv;
+    contentLen = get_header_value(HTTP_HEADER_CONTENT_LENGTH, req->headers);
 
-    if ((hv = get_header_value(HTTP_HEADER_CONTENT_LENGTH, req->headers)) != NULL) {
-        printf("Value: %s\n", hv);
+    if (contentLen != NULL) {
+        int bodyLen = atoi(contentLen);
+
+        if (bodyLen == 0 || bodyLen > HTTP_MAX_BODY_SIZE) {
+            free_request(req);
+            send_response(sockfd, NULL, HTTP_STATUS_BAD_REQUEST);
+            return NULL;
+        } else {
+            req->body = malloc(bodyLen);
+        }
+    } else {
+        
     }
 
-    return NULL;
+    return req;
 }
 
 /**
